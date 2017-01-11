@@ -1,15 +1,16 @@
 package com.igorvorobiov.core;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.BulkOperations;
+import org.springframework.data.mongodb.core.BulkOperations.BulkMode;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Criteria;
 
-import java.util.ArrayList;
 import java.util.Hashtable;
-import java.util.List;
 
 /**
  * Created by Igor Vorobiov <igor.vorobioff@gmail.com>
@@ -18,7 +19,7 @@ import java.util.List;
 @Service
 public class BannerService {
 
-    private final Hashtable<String, ArrayList<Click>> clicksStorage = new Hashtable<>();
+    private final Hashtable<String, Integer> statisticsStorage = new Hashtable<>();
 
     private MongoTemplate mongo;
 
@@ -28,60 +29,45 @@ public class BannerService {
     }
 
     public void registerClick(String bannerId, Click click){
-        click.setBannerId(bannerId);
-
-        if (!clicksStorage.containsKey(bannerId)){
-            clicksStorage.put(bannerId, new ArrayList<>());
-        }
-
-        clicksStorage.get(bannerId).add(click);
+        statisticsStorage.put(bannerId, statisticsStorage.getOrDefault(bannerId, 0) + click.getCost());
     }
 
     @Scheduled(fixedDelay = 5000)
-    public void flushClicks(){
+    public void flushStatistics(){
 
-        if (clicksStorage.isEmpty()){
+        if (statisticsStorage.isEmpty()){
             return ;
         }
 
-        synchronized (clicksStorage){
-            ArrayList<Click> clicks = new ArrayList<>();
+        synchronized (statisticsStorage){
+            BulkOperations ops = mongo.bulkOps(BulkMode.UNORDERED, Statistics.class);
 
-            for (ArrayList<Click> c : clicksStorage.values() ){
-                clicks.addAll(c);
+            for (String bannerId : statisticsStorage.keySet()){
+
+                Integer cost = statisticsStorage.get(bannerId);
+
+                ops.upsert(
+                        new Query(Criteria.where("bannerId").is(bannerId)),
+                        new Update().inc("cost", cost)
+                );
             }
 
-            mongo.insertAll(clicks);
+            ops.execute();
 
-            clicksStorage.clear();
+            statisticsStorage.clear();
         }
     }
 
     public Statistics getStatistics(String bannerId){
 
-        Aggregation aggregation = Aggregation.newAggregation(
-                Aggregation.match(Criteria.where("bannerId").is(bannerId)),
-                Aggregation.group().sum("cost").as("cost"));
+        Statistics statistics = mongo.findOne(Query.query(Criteria.where("bannerId").is(bannerId)), Statistics.class);
 
-        List<Statistics> data = mongo.aggregate(aggregation, Click.class, Statistics.class).getMappedResults();
-
-        Statistics statistics;
-
-        if (data.size() == 1){
-            statistics = data.get(0);
-        } else {
+        if (statistics == null){
             statistics = new Statistics();
+            statistics.setBannerId(bannerId);
         }
 
-        int sum = statistics.getCost();
-
-        if (clicksStorage.containsKey(bannerId)){
-            for (Click click : clicksStorage.get(bannerId)){
-                sum += click.getCost();
-            }
-        }
-
-        statistics.setCost(sum);
+        statistics.setCost(statistics.getCost() + statisticsStorage.getOrDefault(bannerId, 0));
 
         return statistics;
     }

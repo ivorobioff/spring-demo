@@ -4,13 +4,12 @@ import com.igorvorobiov.Application;
 
 import static org.hamcrest.Matchers.*;
 
-import com.igorvorobiov.core.Click;
+import com.igorvorobiov.core.Statistics;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 import org.springframework.test.context.web.WebAppConfiguration;
@@ -48,7 +47,7 @@ public class ClickControllerTests {
     @Before
     public void setup() {
         mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
-        mongo.dropCollection(Click.class);
+        mongo.dropCollection(Statistics.class);
     }
 
     @Test
