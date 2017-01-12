@@ -29,7 +29,10 @@ public class BannerService {
     }
 
     public void registerClick(String bannerId, Click click){
-        statisticsStorage.put(bannerId, statisticsStorage.getOrDefault(bannerId, 0) + click.getCost());
+
+        synchronized (statisticsStorage){
+            statisticsStorage.put(bannerId, statisticsStorage.getOrDefault(bannerId, 0) + click.getCost());
+        }
     }
 
     @Scheduled(fixedDelay = 5000)
@@ -40,6 +43,7 @@ public class BannerService {
         }
 
         synchronized (statisticsStorage){
+
             BulkOperations ops = mongo.bulkOps(BulkMode.UNORDERED, Statistics.class);
 
             for (String bannerId : statisticsStorage.keySet()){
@@ -60,7 +64,7 @@ public class BannerService {
 
     public Statistics getStatistics(String bannerId){
 
-        Statistics statistics = mongo.findOne(Query.query(Criteria.where("bannerId").is(bannerId)), Statistics.class);
+        Statistics statistics = mongo.findOne(new Query(Criteria.where("bannerId").is(bannerId)), Statistics.class);
 
         if (statistics == null){
             statistics = new Statistics();
