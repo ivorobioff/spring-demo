@@ -10,7 +10,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.data.mongodb.core.query.Criteria;
 
-import java.util.Hashtable;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Created by Igor Vorobiov <igor.vorobioff@gmail.com>
@@ -19,7 +23,7 @@ import java.util.Hashtable;
 @Service
 public class BannerService {
 
-    private final Hashtable<String, Integer> statisticsStorage = new Hashtable<>();
+    private final ConcurrentHashMap<String, AtomicLong> statisticsStorage = new ConcurrentHashMap<>();
 
     private MongoTemplate mongo;
 
@@ -29,37 +33,38 @@ public class BannerService {
     }
 
     public void registerClick(String bannerId, Click click){
-
-        synchronized (statisticsStorage){
-            statisticsStorage.put(bannerId, statisticsStorage.getOrDefault(bannerId, 0) + click.getCost());
-        }
+        statisticsStorage.putIfAbsent(bannerId, new AtomicLong(0));
+        statisticsStorage.get(bannerId).getAndAdd(click.getCost());
     }
 
     @Scheduled(fixedDelay = 5000)
     public void flushStatistics(){
 
-        if (statisticsStorage.isEmpty()){
-            return ;
-        }
+        Set<String> bannerIds = new HashSet<>(statisticsStorage.keySet());
 
-        synchronized (statisticsStorage){
+        HashMap<String, Long> localStatistics = new HashMap<>();
 
-            BulkOperations ops = mongo.bulkOps(BulkMode.UNORDERED, Statistics.class);
+        for (String bannerId : bannerIds){
+            AtomicLong v = statisticsStorage.remove(bannerId);
 
-            for (String bannerId : statisticsStorage.keySet()){
-
-                Integer cost = statisticsStorage.get(bannerId);
-
-                ops.upsert(
-                        new Query(Criteria.where("bannerId").is(bannerId)),
-                        new Update().inc("cost", cost)
-                );
+            if (v != null){
+                localStatistics.put(bannerId, v.get());
             }
-
-            ops.execute();
-
-            statisticsStorage.clear();
         }
+
+        BulkOperations ops = mongo.bulkOps(BulkMode.UNORDERED, Statistics.class);
+
+        for (String bannerId : localStatistics.keySet()){
+
+            Long cost = localStatistics.get(bannerId);
+
+            ops.upsert(
+                    new Query(Criteria.where("bannerId").is(bannerId)),
+                    new Update().inc("cost", cost)
+            );
+        }
+
+        ops.execute();
     }
 
     public Statistics getStatistics(String bannerId){
@@ -71,7 +76,8 @@ public class BannerService {
             statistics.setBannerId(bannerId);
         }
 
-        statistics.setCost(statistics.getCost() + statisticsStorage.getOrDefault(bannerId, 0));
+        statistics.setCost((int) (statistics.getCost()
+                + statisticsStorage.getOrDefault(bannerId, new AtomicLong(0)).get()));
 
         return statistics;
     }
