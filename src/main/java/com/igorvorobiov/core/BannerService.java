@@ -33,18 +33,22 @@ public class BannerService {
     }
 
     public void registerClick(String bannerId, Click click){
+
         statisticsStorage.putIfAbsent(bannerId, new AtomicLong(0));
+
         statisticsStorage.get(bannerId).getAndAdd(click.getCost());
     }
 
     @Scheduled(fixedDelay = 5000)
     public void flushStatistics(){
 
-        Set<String> bannerIds = new HashSet<>(statisticsStorage.keySet());
+        if (statisticsStorage.isEmpty()){
+            return ;
+        }
 
         HashMap<String, Long> localStatistics = new HashMap<>();
 
-        for (String bannerId : bannerIds){
+        for (String bannerId : new HashSet<>(statisticsStorage.keySet())){
             AtomicLong v = statisticsStorage.remove(bannerId);
 
             if (v != null){
